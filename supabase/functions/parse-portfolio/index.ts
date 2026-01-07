@@ -274,19 +274,31 @@ EXAMPLE: If you see "Ledger Balance: -7,128,897.35" and NO explicit "Accrued Fee
     // Normalize symbols by stripping trailing asterisks (e.g., MALEKSPIN* → MALEKSPIN)
     const normalizeSymbol = (symbol: string) => symbol.replace(/\*+$/, '');
     
-    // Add confidence to each portfolio and normalize symbols
-    const portfoliosWithConfidence = (parsed.portfolios || []).map((p: any) => ({
-      ...p,
-      holdings: (p.holdings || []).map((h: any) => ({
-        ...h,
-        symbol: normalizeSymbol(h.symbol || '')
-      })),
-      dividends: (p.dividends || []).map((d: any) => ({
-        ...d,
-        symbol: normalizeSymbol(d.symbol || '')
-      })),
-      confidence: 0.9
-    }));
+    // CSH account codes that should have zero accrued fees
+    const CSH_ACCOUNT_CODES = ['CN423', 'R0549', '94412', '29635'];
+    
+    // Add confidence to each portfolio, normalize symbols, and zero accrued fees for CSH accounts
+    const portfoliosWithConfidence = (parsed.portfolios || []).map((p: any) => {
+      const accountNumber = (p.accountInfo?.accountNumber || '').toUpperCase();
+      const isCshAccount = CSH_ACCOUNT_CODES.includes(accountNumber);
+      
+      return {
+        ...p,
+        holdings: (p.holdings || []).map((h: any) => ({
+          ...h,
+          symbol: normalizeSymbol(h.symbol || '')
+        })),
+        dividends: (p.dividends || []).map((d: any) => ({
+          ...d,
+          symbol: normalizeSymbol(d.symbol || '')
+        })),
+        summary: {
+          ...p.summary,
+          accruedFees: isCshAccount ? 0 : (p.summary?.accruedFees || 0)
+        },
+        confidence: 0.9
+      };
+    });
 
     // Return array of portfolios
     return new Response(
