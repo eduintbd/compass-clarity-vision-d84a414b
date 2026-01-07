@@ -119,25 +119,34 @@ async function fetchDSEPrices(symbols: string[]): Promise<MDSPriceData[]> {
       const valueInMn = parseFloat(cells[9].replace(/,/g, '')) || 0;
       const volume = parseInt(cells[10].replace(/,/g, '')) || 0;
       
+      // Use YCP as fallback when LTP is 0 (no trades today)
+      const currentPrice = ltp > 0 ? ltp : ycp;
+      
+      // Skip if we still don't have a valid price
+      if (currentPrice <= 0) {
+        console.log(`Skipping ${symbol}: No valid price (LTP=${ltp}, YCP=${ycp})`);
+        continue;
+      }
+      
       // Calculate change percent
       const changePercent = ycp > 0 ? (change / ycp) * 100 : 0;
       
       prices.push({
         symbol,
-        lastPrice: ltp,
+        lastPrice: currentPrice,
         previousClose: ycp,
-        high,
-        low,
-        open: closep, // Using closep as a reference
+        high: high > 0 ? high : currentPrice,
+        low: low > 0 ? low : currentPrice,
+        open: closep > 0 ? closep : currentPrice,
         change,
         changePercent,
         volume,
-        value: valueInMn * 1000000, // Convert from millions to actual value
+        value: valueInMn * 1000000,
         trades,
         fetchedAt: new Date().toISOString(),
       });
       
-      console.log(`Parsed ${symbol}: LTP=${ltp}, YCP=${ycp}, Change=${change}`);
+      console.log(`Parsed ${symbol}: Price=${currentPrice} (LTP=${ltp}, YCP=${ycp}), Change=${change}`);
     }
   }
 
@@ -154,6 +163,12 @@ async function updateHoldingPrices(
   const errors: string[] = [];
   
   for (const price of prices) {
+    // Skip if price is 0 or negative - preserve existing data
+    if (price.lastPrice <= 0) {
+      console.log(`Skipping ${price.symbol}: Invalid price ${price.lastPrice}`);
+      continue;
+    }
+    
     try {
       // Get all holdings with this symbol
       const { data: holdings, error: fetchError } = await supabase
