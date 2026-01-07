@@ -27,24 +27,27 @@ serve(async (req) => {
 
     // Get authorization header for user identification
     const authHeader = req.headers.get("authorization");
-    if (!authHeader) {
+    if (!authHeader?.startsWith("Bearer ")) {
       return new Response(
         JSON.stringify({ error: "Authorization required" }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Verify user
-    const { data: { user }, error: authError } = await supabase.auth.getUser(
-      authHeader.replace("Bearer ", "")
-    );
+    // Verify user using getClaims
+    const token = authHeader.replace("Bearer ", "");
+    const { data: claimsData, error: authError } = await supabase.auth.getClaims(token);
 
-    if (authError || !user) {
+    if (authError || !claimsData?.claims) {
+      console.error("Auth error:", authError);
       return new Response(
         JSON.stringify({ error: "Invalid authorization" }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    const userId = claimsData.claims.sub;
+    const user = { id: userId };
 
     const { documentText, documentType } = await req.json();
 
