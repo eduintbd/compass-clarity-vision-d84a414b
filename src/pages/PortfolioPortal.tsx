@@ -448,6 +448,7 @@ const PortfolioPortal = () => {
                   No holdings match the current filter
                 </div>
               ) : (
+                <>
                 <ScrollArea className="max-h-[400px]">
                   <Table>
                     <TableHeader>
@@ -517,31 +518,34 @@ const PortfolioPortal = () => {
                           </TableRow>
                         );
                       })}
-                      {/* Totals Row */}
-                      {holdingsTotals && (
-                        <TableRow className="border-t-2 border-[#40BABD]/30 bg-secondary/50 font-bold sticky bottom-0">
-                          <TableCell className="font-bold">TOTAL</TableCell>
-                          <TableCell></TableCell>
-                          <TableCell></TableCell>
-                          <TableCell className="text-right">
-                            <span className={holdingsTotals.dailyPL >= 0 ? 'text-emerald-400' : 'text-red-400'}>
-                              {holdingsTotals.dailyPL > 0 ? '+' : ''}{formatCurrency(holdingsTotals.dailyPL)}
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-right">{holdingsTotals.quantity.toLocaleString()}</TableCell>
-                          <TableCell></TableCell>
-                          <TableCell className="text-right font-bold">{formatCurrency(holdingsTotals.marketValue)}</TableCell>
-                          <TableCell className="text-right">100%</TableCell>
-                          <TableCell className="text-right">
-                            <span className={holdingsTotals.unrealizedGain >= 0 ? 'text-emerald-400' : 'text-red-400'}>
-                              {holdingsTotals.unrealizedGain >= 0 ? '+' : ''}{formatCurrency(holdingsTotals.unrealizedGain)}
-                            </span>
-                          </TableCell>
-                        </TableRow>
-                      )}
                     </TableBody>
                   </Table>
                 </ScrollArea>
+                {/* Totals Row - Always visible below ScrollArea */}
+                {holdingsTotals && (
+                  <div className="border-t-2 border-[#40BABD]/30 bg-secondary/50 px-4 py-3">
+                    <div className="grid grid-cols-9 gap-4 font-bold text-sm">
+                      <div>TOTAL</div>
+                      <div></div>
+                      <div></div>
+                      <div className="text-right">
+                        <span className={holdingsTotals.dailyPL >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                          {holdingsTotals.dailyPL > 0 ? '+' : ''}{formatCurrency(holdingsTotals.dailyPL)}
+                        </span>
+                      </div>
+                      <div className="text-right">{holdingsTotals.quantity.toLocaleString()}</div>
+                      <div></div>
+                      <div className="text-right">{formatCurrency(holdingsTotals.marketValue)}</div>
+                      <div className="text-right">100%</div>
+                      <div className="text-right">
+                        <span className={holdingsTotals.unrealizedGain >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                          {holdingsTotals.unrealizedGain >= 0 ? '+' : ''}{formatCurrency(holdingsTotals.unrealizedGain)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                </>
               )}
             </CardContent>
           </Card>
