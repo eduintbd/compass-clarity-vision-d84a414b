@@ -252,23 +252,12 @@ async function updatePortfolioTotals(supabase: any): Promise<void> {
       total_unrealized_gain: 0,
     });
     
-    // Update portfolio with new totals (add cash balance and private equity)
-    const { data: currentPortfolio } = await supabase
-      .from('portfolios')
-      .select('cash_balance, private_equity_value')
-      .eq('id', portfolio.id)
-      .single();
-    
-    const portfolioData = currentPortfolio as CurrentPortfolioData | null;
-    if (portfolioData) {
-      totals.total_market_value += (portfolioData.cash_balance || 0) + (portfolioData.private_equity_value || 0);
-    }
-    
+    // Update portfolio with holdings totals only (do NOT add cash/private equity to total_market_value)
     const { error: updateError } = await supabase
       .from('portfolios')
       .update({
-        equity_at_market: totals.total_market_value - (portfolioData?.cash_balance || 0) - (portfolioData?.private_equity_value || 0),
-        total_market_value: totals.total_market_value,
+        equity_at_market: totals.total_market_value, // Holdings only = equity at market
+        total_market_value: totals.total_market_value, // Holdings sum only, no cash/PE
         total_cost_basis: totals.total_cost_basis,
         total_unrealized_gain: totals.total_unrealized_gain,
         updated_at: new Date().toISOString(),
