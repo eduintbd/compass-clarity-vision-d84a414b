@@ -271,9 +271,20 @@ EXAMPLE: If you see "Ledger Balance: -7,128,897.35" and NO explicit "Accrued Fee
     console.log("Successfully parsed portfolios for user:", user.id);
     console.log("Portfolios found:", parsed.portfolios?.length || 0);
     
-    // Add confidence to each portfolio
+    // Normalize symbols by stripping trailing asterisks (e.g., MALEKSPIN* → MALEKSPIN)
+    const normalizeSymbol = (symbol: string) => symbol.replace(/\*+$/, '');
+    
+    // Add confidence to each portfolio and normalize symbols
     const portfoliosWithConfidence = (parsed.portfolios || []).map((p: any) => ({
       ...p,
+      holdings: (p.holdings || []).map((h: any) => ({
+        ...h,
+        symbol: normalizeSymbol(h.symbol || '')
+      })),
+      dividends: (p.dividends || []).map((d: any) => ({
+        ...d,
+        symbol: normalizeSymbol(d.symbol || '')
+      })),
       confidence: 0.9
     }));
 
