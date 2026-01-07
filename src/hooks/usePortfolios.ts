@@ -288,7 +288,7 @@ export const useAggregatedHoldings = () => {
             // Price data - take from first occurrence (same stock has same LTP/YCP)
             ltp: holding.current_price || 0,
             ycp: holding.ycp || 0,
-            day_change: holding.day_change || 0,
+            day_change: holding.day_change || (holding.ycp > 0 ? holding.current_price - holding.ycp : 0),
             day_change_percent: holding.day_change_percent || 0,
           };
         }
