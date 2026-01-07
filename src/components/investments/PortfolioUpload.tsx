@@ -448,6 +448,14 @@ export const PortfolioUpload = ({ onSaveSuccess }: { onSaveSuccess?: () => void 
       setParsedPortfolios([]);
       setPasteText('');
       onSaveSuccess?.();
+
+      // Auto-refresh prices to populate YCP and day_change
+      try {
+        console.log("Auto-refreshing prices after portfolio save...");
+        await supabase.functions.invoke('fetch-mds-prices');
+      } catch (refreshError) {
+        console.log("Price refresh skipped:", refreshError);
+      }
     } catch (err) {
       console.error('Error saving portfolio:', err);
       toast({
