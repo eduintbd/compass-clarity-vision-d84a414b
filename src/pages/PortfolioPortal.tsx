@@ -136,6 +136,23 @@ const PortfolioPortal = () => {
     return { allocationData, filteredCount: filteredHoldings.length, totalCount };
   }, [aggregatedHoldings, filteredHoldings]);
 
+  // Calculate holdings totals
+  const holdingsTotals = useMemo(() => {
+    if (!sortedHoldings || sortedHoldings.length === 0) return null;
+    
+    return sortedHoldings.reduce((acc, holding) => ({
+      quantity: acc.quantity + holding.quantity,
+      marketValue: acc.marketValue + holding.market_value,
+      unrealizedGain: acc.unrealizedGain + holding.unrealized_gain,
+      dailyPL: acc.dailyPL + (holding.day_change * holding.quantity),
+    }), { 
+      quantity: 0, 
+      marketValue: 0, 
+      unrealizedGain: 0, 
+      dailyPL: 0 
+    });
+  }, [sortedHoldings]);
+
   const toggleTypeFilter = (typeKey: string) => {
     setExcludedTypes(prev => 
       prev.includes(typeKey) 
@@ -500,6 +517,28 @@ const PortfolioPortal = () => {
                           </TableRow>
                         );
                       })}
+                      {/* Totals Row */}
+                      {holdingsTotals && (
+                        <TableRow className="border-t-2 border-[#40BABD]/30 bg-secondary/50 font-bold sticky bottom-0">
+                          <TableCell className="font-bold">TOTAL</TableCell>
+                          <TableCell></TableCell>
+                          <TableCell></TableCell>
+                          <TableCell className="text-right">
+                            <span className={holdingsTotals.dailyPL >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                              {holdingsTotals.dailyPL > 0 ? '+' : ''}{formatCurrency(holdingsTotals.dailyPL)}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right">{holdingsTotals.quantity.toLocaleString()}</TableCell>
+                          <TableCell></TableCell>
+                          <TableCell className="text-right font-bold">{formatCurrency(holdingsTotals.marketValue)}</TableCell>
+                          <TableCell className="text-right">100%</TableCell>
+                          <TableCell className="text-right">
+                            <span className={holdingsTotals.unrealizedGain >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                              {holdingsTotals.unrealizedGain >= 0 ? '+' : ''}{formatCurrency(holdingsTotals.unrealizedGain)}
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      )}
                     </TableBody>
                   </Table>
                 </ScrollArea>
