@@ -7,6 +7,9 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
+  console.log("=== parse-portfolio function invoked ===");
+  console.log("Request method:", req.method);
+  
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -14,9 +17,16 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
 
+    console.log("Environment check - URL exists:", !!supabaseUrl);
+    console.log("Environment check - Service key exists:", !!supabaseServiceKey);
+    console.log("Environment check - Anon key exists:", !!supabaseAnonKey);
+    console.log("Environment check - Lovable API key exists:", !!lovableApiKey);
+
     if (!lovableApiKey) {
+      console.error("LOVABLE_API_KEY is missing");
       return new Response(
         JSON.stringify({ error: "AI service not configured" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -28,30 +38,36 @@ serve(async (req) => {
 
     // Get authorization header for user identification
     const authHeader = req.headers.get("authorization");
+    console.log("Auth header present:", !!authHeader);
+    console.log("Auth header starts with Bearer:", authHeader?.startsWith("Bearer "));
+    
     if (!authHeader?.startsWith("Bearer ")) {
+      console.error("Missing or invalid authorization header");
       return new Response(
-        JSON.stringify({ error: "Authorization required" }),
+        JSON.stringify({ error: "Authorization required", details: "Missing Bearer token" }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
     // Create auth client with user's token for verification
-    const supabaseAuth = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
+    const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
       global: {
         headers: { Authorization: authHeader },
       },
     });
 
     // Verify user using the auth-context client
+    console.log("Verifying user token...");
     const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
 
     if (authError || !user) {
-      console.error("Auth error:", authError);
+      console.error("Auth verification failed:", authError?.message || "No user returned");
       return new Response(
-        JSON.stringify({ error: "Invalid authorization" }),
+        JSON.stringify({ error: "Invalid authorization", details: authError?.message }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+    console.log("User verified successfully:", user.id);
 
     const { documentText, documentType } = await req.json();
 

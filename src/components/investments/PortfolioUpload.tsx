@@ -134,7 +134,8 @@ export const PortfolioUpload = ({ onSaveSuccess }: { onSaveSuccess?: () => void 
   }, []);
 
   const parsePortfolio = useCallback(async (text: string): Promise<ParsedPortfolio[]> => {
-    const { data: { session } } = await supabase.auth.getSession();
+    // Get current session
+    let { data: { session } } = await supabase.auth.getSession();
     
     if (!session) {
       toast({
@@ -145,14 +146,48 @@ export const PortfolioUpload = ({ onSaveSuccess }: { onSaveSuccess?: () => void 
       return [];
     }
 
+    // Check if token is about to expire (within 60 seconds) and refresh
+    const expiresAt = session.expires_at ? session.expires_at * 1000 : 0;
+    const now = Date.now();
+    if (expiresAt - now < 60000) {
+      console.log("Session expiring soon, refreshing...");
+      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+      if (refreshError) {
+        console.error("Failed to refresh session:", refreshError);
+        toast({
+          title: "Session expired",
+          description: "Please sign in again",
+          variant: "destructive",
+        });
+        return [];
+      }
+      session = refreshData.session;
+      if (!session) {
+        toast({
+          title: "Authentication required",
+          description: "Please sign in to parse portfolio documents",
+          variant: "destructive",
+        });
+        return [];
+      }
+    }
+
+    console.log("Invoking parse-portfolio with token length:", session.access_token.length);
+
     const { data, error } = await supabase.functions.invoke('parse-portfolio', {
       body: { 
         documentText: text,
         documentType: 'portfolio-statement'
       },
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+      },
     });
 
-    if (error) throw error;
+    if (error) {
+      console.error("Parse portfolio error:", error);
+      throw new Error(error.message || "Failed to invoke parse function");
+    }
 
     if (data?.success && data?.data) {
       // data.data is now an array of portfolios
