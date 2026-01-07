@@ -23,6 +23,7 @@ serve(async (req) => {
       );
     }
 
+    // Service role client for database operations
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Get authorization header for user identification
@@ -34,20 +35,23 @@ serve(async (req) => {
       );
     }
 
-    // Verify user using getClaims
-    const token = authHeader.replace("Bearer ", "");
-    const { data: claimsData, error: authError } = await supabase.auth.getClaims(token);
+    // Create auth client with user's token for verification
+    const supabaseAuth = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
+      global: {
+        headers: { Authorization: authHeader },
+      },
+    });
 
-    if (authError || !claimsData?.claims) {
+    // Verify user using the auth-context client
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
+
+    if (authError || !user) {
       console.error("Auth error:", authError);
       return new Response(
         JSON.stringify({ error: "Invalid authorization" }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-
-    const userId = claimsData.claims.sub;
-    const user = { id: userId };
 
     const { documentText, documentType } = await req.json();
 
