@@ -1,1 +1,13 @@
 project_id = "aswejhthjhhawxetjyhz"
+
+[functions.parse-portfolio]
+verify_jwt = false
+
+[functions.parse-email]
+verify_jwt = false
+
+[functions.amarstock-proxy]
+verify_jwt = false
+
+[functions.fetch-mds-prices]
+verify_jwt = false
