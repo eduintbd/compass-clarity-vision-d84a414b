@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -239,12 +239,34 @@ EXAMPLE: If you see "Ledger Balance: -7,128,897.35" and NO explicit "Accrued Fee
       const errorText = await aiResponse.text();
       console.error("AI parsing error:", aiResponse.status, errorText);
       return new Response(
-        JSON.stringify({ error: "Failed to parse document with AI" }),
+        JSON.stringify({ error: "Failed to parse document with AI", details: errorText }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const aiData = await aiResponse.json();
+    // Read response text first to handle empty/invalid responses
+    const responseText = await aiResponse.text();
+    console.log("AI response length:", responseText.length);
+    
+    if (!responseText || responseText.trim() === '') {
+      console.error("AI returned empty response");
+      return new Response(
+        JSON.stringify({ error: "AI returned empty response" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    let aiData;
+    try {
+      aiData = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error("Failed to parse AI response as JSON:", responseText.substring(0, 500));
+      return new Response(
+        JSON.stringify({ error: "AI returned invalid JSON response" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    
     console.log("AI response structure:", JSON.stringify(Object.keys(aiData)));
     
     // Extract from tool call
