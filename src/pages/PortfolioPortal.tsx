@@ -446,8 +446,6 @@ const PortfolioPortal = () => {
                             )}
                           </div>
                         </TableHead>
-                        <TableHead>Company</TableHead>
-                        <SortableHeader column="ycp" label="YCP" className="text-right" />
                         <SortableHeader column="ltp" label="LTP" className="text-right" />
                         <SortableHeader column="change" label="Change" className="text-right" />
                         <SortableHeader column="dailyPL" label="Daily P&L" className="text-right" />
@@ -456,7 +454,6 @@ const PortfolioPortal = () => {
                         <SortableHeader column="marketValue" label="Market Value" className="text-right" />
                         <TableHead className="text-right">Weight</TableHead>
                         <SortableHeader column="gainLoss" label="Gain/Loss" className="text-right" />
-                        <TableHead>Type</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -468,12 +465,6 @@ const PortfolioPortal = () => {
                         return (
                           <TableRow key={holding.symbol} className="border-border/50 hover:bg-[#40BABD]/5">
                             <TableCell className="font-medium text-[#40BABD]">{holding.symbol}</TableCell>
-                            <TableCell className="text-muted-foreground max-w-[120px] truncate">
-                              {holding.company_name || '-'}
-                            </TableCell>
-                            <TableCell className="text-right text-muted-foreground">
-                              {holding.ycp > 0 ? formatCurrency(holding.ycp, 'BDT', true) : '-'}
-                            </TableCell>
                             <TableCell className={`text-right font-medium ${ltpColor}`}>
                               {holding.ltp > 0 ? formatCurrency(holding.ltp, 'BDT', true) : '-'}
                             </TableCell>
@@ -505,11 +496,6 @@ const PortfolioPortal = () => {
                               <span className={holding.unrealized_gain >= 0 ? 'text-emerald-400' : 'text-red-400'}>
                                 {holding.unrealized_gain >= 0 ? '+' : ''}{formatCurrency(holding.unrealized_gain)}
                               </span>
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant="outline" className="capitalize text-xs">
-                                {holding.classification || 'Stocks'}
-                              </Badge>
                             </TableCell>
                           </TableRow>
                         );
