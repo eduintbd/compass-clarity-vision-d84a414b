@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { 
   TrendingUp, TrendingDown, PieChart, BarChart3, Download, 
@@ -30,6 +30,9 @@ import {
 } from '@/components/ui/table';
 import { useUniqueAccounts, useAggregatedHoldings } from '@/hooks/usePortfolios';
 import { formatCurrency, formatCompactCurrency, formatDateTime } from '@/lib/formatters';
+import { supabase } from '@/integrations/supabase/client';
+import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { PieChart as RechartsPie, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 
 const COLORS = ['#40BABD', '#2DD4BF', '#0EA5E9', '#8B5CF6', '#F59E0B', '#EF4444', '#10B981', '#6366F1'];
@@ -39,8 +42,42 @@ const PortfolioPortal = () => {
   const [excludedTypes, setExcludedTypes] = useState<string[]>([]);
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [isRefreshing, setIsRefreshing] = useState(false);
   
   const { data: aggregatedHoldings, isLoading: isLoadingAggregated } = useAggregatedHoldings();
+  const queryClient = useQueryClient();
+
+  // Refresh prices from edge function
+  const handleRefreshPrices = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast.error('Please log in to refresh prices');
+        return;
+      }
+
+      const { data, error } = await supabase.functions.invoke('fetch-mds-prices', {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+
+      if (error) throw error;
+
+      toast.success(`Prices refreshed: ${data?.updated || 0} holdings updated`);
+      
+      // Invalidate queries to refetch data
+      queryClient.invalidateQueries({ queryKey: ['holdings'] });
+      queryClient.invalidateQueries({ queryKey: ['aggregated-holdings'] });
+      queryClient.invalidateQueries({ queryKey: ['portfolios'] });
+    } catch (error: any) {
+      console.error('Error refreshing prices:', error);
+      toast.error(error.message || 'Failed to refresh prices');
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [queryClient]);
 
   // Get unique classification types from holdings
   const classificationTypes = useMemo(() => {
@@ -257,6 +294,16 @@ const PortfolioPortal = () => {
                               Last refreshed: {formatDateTime(lastRefreshed)}
                             </span>
                           )}
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            onClick={handleRefreshPrices}
+                            disabled={isRefreshing}
+                            className="h-6 px-2 text-xs"
+                          >
+                            <RefreshCw className={`w-3 h-3 mr-1 ${isRefreshing ? 'animate-spin' : ''}`} />
+                            {isRefreshing ? 'Refreshing...' : 'Refresh'}
+                          </Button>
                         </div>
                       </div>
                       <Button variant="outline" size="sm">
