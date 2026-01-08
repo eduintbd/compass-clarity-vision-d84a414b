@@ -42,9 +42,9 @@ interface HoldingTotals {
   unrealized_gain: number;
 }
 
-interface CurrentPortfolioData {
-  cash_balance: number;
-  private_equity_value: number;
+interface HistoricalPrice {
+  close_price: number;
+  trade_date: string;
 }
 
 // Function to fetch prices from DSE website
@@ -73,10 +73,6 @@ async function fetchDSEPrices(symbols: string[]): Promise<MDSPriceData[]> {
   const symbolSet = new Set(symbols.map(s => s.toUpperCase()));
 
   // Parse the HTML table
-  // The table has columns: # | TRADING CODE | LTP | HIGH | LOW | CLOSEP | YCP | CHANGE | TRADE | VALUE (mn) | VOLUME
-  // Each row is in format: <tr>...<td>data</td>...</tr>
-  
-  // Match table rows - look for rows with numeric first column
   const tableRowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
   let rowMatch;
   
@@ -89,7 +85,6 @@ async function fetchDSEPrices(symbols: string[]): Promise<MDSPriceData[]> {
     let tdMatch;
     
     while ((tdMatch = tdRegex.exec(rowContent)) !== null) {
-      // Clean the cell content - remove HTML tags and trim
       const cellContent = tdMatch[1]
         .replace(/<[^>]*>/g, '')
         .replace(/&nbsp;/g, ' ')
@@ -97,16 +92,13 @@ async function fetchDSEPrices(symbols: string[]): Promise<MDSPriceData[]> {
       cells.push(cellContent);
     }
     
-    // We need at least 11 columns: #, TRADING CODE, LTP, HIGH, LOW, CLOSEP, YCP, CHANGE, TRADE, VALUE, VOLUME
     if (cells.length >= 11) {
       const rowNum = parseInt(cells[0]);
       
-      // Skip if first cell is not a number (header row)
       if (isNaN(rowNum)) continue;
       
       const symbol = cells[1].toUpperCase().trim();
       
-      // Only process symbols we're looking for
       if (!symbolSet.has(symbol)) continue;
       
       const ltp = parseFloat(cells[2].replace(/,/g, '')) || 0;
@@ -122,13 +114,11 @@ async function fetchDSEPrices(symbols: string[]): Promise<MDSPriceData[]> {
       // Use YCP as fallback when LTP is 0 (no trades today)
       const currentPrice = ltp > 0 ? ltp : ycp;
       
-      // Skip if we still don't have a valid price
       if (currentPrice <= 0) {
         console.log(`Skipping ${symbol}: No valid price (LTP=${ltp}, YCP=${ycp})`);
         continue;
       }
       
-      // Calculate change percent
       const changePercent = ycp > 0 ? (change / ycp) * 100 : 0;
       
       prices.push({
@@ -154,6 +144,70 @@ async function fetchDSEPrices(symbols: string[]): Promise<MDSPriceData[]> {
   return prices;
 }
 
+// Save price data to price_history table for historical reference
+async function savePriceHistory(supabase: any, prices: MDSPriceData[]): Promise<void> {
+  const today = new Date().toISOString().split('T')[0];
+  console.log(`Saving ${prices.length} prices to price_history for date: ${today}`);
+  
+  for (const price of prices) {
+    if (price.lastPrice <= 0) continue;
+    
+    try {
+      const { error } = await supabase
+        .from('price_history')
+        .upsert({
+          symbol: price.symbol,
+          trade_date: today,
+          open_price: price.open,
+          high_price: price.high,
+          low_price: price.low,
+          close_price: price.lastPrice,
+          ycp: price.previousClose,
+          change: price.change,
+          change_percent: price.changePercent,
+          volume: price.volume,
+          trade_value: price.value,
+          trades: price.trades,
+        }, { onConflict: 'symbol,trade_date' });
+      
+      if (error) {
+        console.error(`Error saving price history for ${price.symbol}:`, error.message);
+      }
+    } catch (err) {
+      console.error(`Exception saving price history for ${price.symbol}:`, err);
+    }
+  }
+  
+  console.log('Price history save completed');
+}
+
+// Get last known price from price_history for fallback YCP calculation
+async function getLastKnownPrices(supabase: any, symbol: string): Promise<{ previousClose: number; change: number } | null> {
+  try {
+    const { data, error } = await supabase
+      .from('price_history')
+      .select('close_price, trade_date')
+      .eq('symbol', symbol)
+      .order('trade_date', { ascending: false })
+      .limit(2);
+    
+    if (error || !data || data.length < 2) {
+      return null;
+    }
+    
+    const prices = data as HistoricalPrice[];
+    const todayClose = prices[0].close_price;
+    const previousClose = prices[1].close_price;
+    const change = todayClose - previousClose;
+    
+    console.log(`Historical fallback for ${symbol}: previousClose=${previousClose}, change=${change}`);
+    return { previousClose, change };
+  } catch (err) {
+    console.error(`Error fetching historical prices for ${symbol}:`, err);
+    return null;
+  }
+}
+
 // Update holdings in Supabase
 async function updateHoldingPrices(
   supabase: any,
@@ -163,14 +217,12 @@ async function updateHoldingPrices(
   const errors: string[] = [];
   
   for (const price of prices) {
-    // Skip if price is 0 or negative - preserve existing data
     if (price.lastPrice <= 0) {
       console.log(`Skipping ${price.symbol}: Invalid price ${price.lastPrice}`);
       continue;
     }
     
     try {
-      // Get all holdings with this symbol
       const { data: holdings, error: fetchError } = await supabase
         .from('holdings')
         .select('id, quantity, cost_basis, portfolio_id')
@@ -186,7 +238,22 @@ async function updateHoldingPrices(
         continue;
       }
       
-      // Update each holding
+      // Determine YCP and change - use historical fallback if DSE returns 0
+      let ycp = price.previousClose;
+      let change = price.change;
+      let changePercent = price.changePercent;
+      
+      if (ycp <= 0) {
+        console.log(`YCP is 0 for ${price.symbol}, attempting historical fallback...`);
+        const historical = await getLastKnownPrices(supabase, price.symbol);
+        if (historical) {
+          ycp = historical.previousClose;
+          change = price.lastPrice - ycp;
+          changePercent = ycp > 0 ? (change / ycp) * 100 : 0;
+          console.log(`Using historical fallback for ${price.symbol}: YCP=${ycp}, Change=${change}`);
+        }
+      }
+      
       for (const holding of holdings as HoldingData[]) {
         const marketValue = holding.quantity * price.lastPrice;
         const unrealizedGain = marketValue - holding.cost_basis;
@@ -198,7 +265,7 @@ async function updateHoldingPrices(
           .from('holdings')
           .update({
             current_price: price.lastPrice,
-            ycp: price.previousClose,
+            ycp: ycp,
             day_high: price.high,
             day_low: price.low,
             day_open: price.open,
@@ -208,8 +275,8 @@ async function updateHoldingPrices(
             market_value: marketValue,
             unrealized_gain: unrealizedGain,
             unrealized_gain_percent: unrealizedGainPercent,
-            day_change: price.change,
-            day_change_percent: price.changePercent,
+            day_change: change,
+            day_change_percent: changePercent,
             last_updated_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           })
@@ -219,7 +286,7 @@ async function updateHoldingPrices(
           errors.push(`Error updating ${price.symbol} (${holding.id}): ${updateError.message}`);
         } else {
           updated++;
-          console.log(`Updated ${price.symbol}: ৳${price.lastPrice}`);
+          console.log(`Updated ${price.symbol}: ৳${price.lastPrice}, YCP=${ycp}, Change=${change}`);
         }
       }
     } catch (error: unknown) {
@@ -235,7 +302,6 @@ async function updateHoldingPrices(
 async function updatePortfolioTotals(supabase: any): Promise<void> {
   console.log('Recalculating portfolio totals...');
   
-  // Get all unique portfolio IDs
   const { data: portfolios, error: portfolioError } = await supabase
     .from('portfolios')
     .select('id');
@@ -246,7 +312,6 @@ async function updatePortfolioTotals(supabase: any): Promise<void> {
   }
   
   for (const portfolio of portfolios as PortfolioData[]) {
-    // Get sum of holdings for this portfolio
     const { data: holdings, error: holdingsError } = await supabase
       .from('holdings')
       .select('market_value, cost_basis, unrealized_gain')
@@ -267,12 +332,11 @@ async function updatePortfolioTotals(supabase: any): Promise<void> {
       total_unrealized_gain: 0,
     });
     
-    // Update portfolio with holdings totals only (do NOT add cash/private equity to total_market_value)
     const { error: updateError } = await supabase
       .from('portfolios')
       .update({
-        equity_at_market: totals.total_market_value, // Holdings only = equity at market
-        total_market_value: totals.total_market_value, // Holdings sum only, no cash/PE
+        equity_at_market: totals.total_market_value,
+        total_market_value: totals.total_market_value,
         total_cost_basis: totals.total_cost_basis,
         total_unrealized_gain: totals.total_unrealized_gain,
         updated_at: new Date().toISOString(),
@@ -288,7 +352,6 @@ async function updatePortfolioTotals(supabase: any): Promise<void> {
 }
 
 serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -297,10 +360,8 @@ serve(async (req) => {
     console.log('=== DSE Price Fetch Started ===');
     console.log(`Timestamp: ${new Date().toISOString()}`);
     
-    // Initialize Supabase client with service role key for admin access
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     
-    // Get all unique symbols from holdings
     const { data: holdings, error: holdingsError } = await supabase
       .from('holdings')
       .select('symbol')
@@ -340,7 +401,10 @@ serve(async (req) => {
       });
     }
     
-    // Update holdings with new prices
+    // Save prices to history for future fallback
+    await savePriceHistory(supabase, prices);
+    
+    // Update holdings with new prices (with historical fallback)
     const { updated, errors } = await updateHoldingPrices(supabase, prices);
     
     // Recalculate portfolio totals

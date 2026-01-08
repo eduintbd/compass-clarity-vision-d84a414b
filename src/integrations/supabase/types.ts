@@ -820,6 +820,57 @@ export type Database = {
         }
         Relationships: []
       }
+      price_history: {
+        Row: {
+          change: number | null
+          change_percent: number | null
+          close_price: number
+          created_at: string | null
+          high_price: number | null
+          id: string
+          low_price: number | null
+          open_price: number | null
+          symbol: string
+          trade_date: string
+          trade_value: number | null
+          trades: number | null
+          volume: number | null
+          ycp: number | null
+        }
+        Insert: {
+          change?: number | null
+          change_percent?: number | null
+          close_price: number
+          created_at?: string | null
+          high_price?: number | null
+          id?: string
+          low_price?: number | null
+          open_price?: number | null
+          symbol: string
+          trade_date: string
+          trade_value?: number | null
+          trades?: number | null
+          volume?: number | null
+          ycp?: number | null
+        }
+        Update: {
+          change?: number | null
+          change_percent?: number | null
+          close_price?: number
+          created_at?: string | null
+          high_price?: number | null
+          id?: string
+          low_price?: number | null
+          open_price?: number | null
+          symbol?: string
+          trade_date?: string
+          trade_value?: number | null
+          trades?: number | null
+          volume?: number | null
+          ycp?: number | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
