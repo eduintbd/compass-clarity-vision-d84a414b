@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { 
   TrendingUp, TrendingDown, PieChart, BarChart3, Download, 
   RefreshCw, ArrowUpRight, ArrowDownRight,
-  Briefcase, DollarSign, Percent, Activity, Trophy, AlertTriangle
+  Briefcase, DollarSign, Percent, Activity, Trophy, AlertTriangle, Clock
 } from 'lucide-react';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Header } from '@/components/layout/Header';
@@ -29,7 +29,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useUniqueAccounts, useAggregatedHoldings } from '@/hooks/usePortfolios';
-import { formatCurrency, formatCompactCurrency } from '@/lib/formatters';
+import { formatCurrency, formatCompactCurrency, formatDateTime } from '@/lib/formatters';
 import { PieChart as RechartsPie, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 
 const COLORS = ['#40BABD', '#2DD4BF', '#0EA5E9', '#8B5CF6', '#F59E0B', '#EF4444', '#10B981', '#6366F1'];
@@ -204,6 +204,16 @@ const PortfolioPortal = () => {
     return allocationData.slice(0, 5);
   }, [allocationData]);
 
+  // Get the most recent last_updated_at from all holdings
+  const lastRefreshed = useMemo(() => {
+    if (!aggregatedHoldings || aggregatedHoldings.length === 0) return null;
+    const timestamps = aggregatedHoldings
+      .map(h => h.last_updated_at)
+      .filter((t): t is string => !!t);
+    if (timestamps.length === 0) return null;
+    return timestamps.sort().reverse()[0];
+  }, [aggregatedHoldings]);
+
   return (
     <div className="min-h-screen bg-background">
       <Sidebar activeItem="/portfolio-portal" />
@@ -239,7 +249,15 @@ const PortfolioPortal = () => {
                     <div className="flex items-center justify-between mb-6">
                       <div>
                         <h2 className="text-xl font-bold">Portfolio Overview</h2>
-                        <p className="text-sm text-muted-foreground">Real-time portfolio performance</p>
+                        <div className="flex items-center gap-3">
+                          <p className="text-sm text-muted-foreground">Real-time portfolio performance</p>
+                          {lastRefreshed && (
+                            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <Clock className="w-3 h-3" />
+                              Last refreshed: {formatDateTime(lastRefreshed)}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <Button variant="outline" size="sm">
                         <Download className="w-4 h-4 mr-2" />
