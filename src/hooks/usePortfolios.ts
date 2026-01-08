@@ -220,6 +220,7 @@ export interface AggregatedHolding {
   ycp: number;
   day_change: number;
   day_change_percent: number;
+  last_updated_at: string | null;
 }
 
 // Helper to normalize symbol names (remove suffixes like "(A)", "()", etc.)
@@ -290,7 +291,12 @@ export const useAggregatedHoldings = () => {
             ycp: holding.ycp || 0,
             day_change: holding.day_change || (holding.ycp > 0 ? holding.current_price - holding.ycp : 0),
             day_change_percent: holding.day_change_percent || 0,
+            last_updated_at: holding.last_updated_at,
           };
+        } else if (holding.last_updated_at && (!aggregated[normalizedSymbol].last_updated_at || 
+                   holding.last_updated_at > aggregated[normalizedSymbol].last_updated_at)) {
+          // Keep the most recent last_updated_at
+          aggregated[normalizedSymbol].last_updated_at = holding.last_updated_at;
         }
 
         aggregated[normalizedSymbol].quantity += holding.quantity;
