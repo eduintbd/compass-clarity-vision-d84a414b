@@ -43,6 +43,7 @@ const PortfolioPortal = () => {
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastRefreshedOverride, setLastRefreshedOverride] = useState<string | null>(null);
   
   const { data: aggregatedHoldings, isLoading: isLoadingAggregated } = useAggregatedHoldings();
   const queryClient = useQueryClient();
@@ -57,20 +58,25 @@ const PortfolioPortal = () => {
         return;
       }
 
-      const { data, error } = await supabase.functions.invoke('fetch-mds-prices', {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      });
+      const { data, error } = await supabase.functions.invoke('fetch-mds-prices');
 
       if (error) throw error;
 
       toast.success(`Prices refreshed: ${data?.updated || 0} holdings updated`);
       
-      // Invalidate queries to refetch data
-      queryClient.invalidateQueries({ queryKey: ['holdings'] });
-      queryClient.invalidateQueries({ queryKey: ['aggregated-holdings'] });
-      queryClient.invalidateQueries({ queryKey: ['portfolios'] });
+      // Update the override timestamp immediately for instant UX feedback
+      if (data?.timestamp) {
+        setLastRefreshedOverride(data.timestamp);
+      }
+      
+      // Invalidate and refetch queries with correct keys (underscore, not dash)
+      await queryClient.invalidateQueries({ queryKey: ['holdings'], exact: false });
+      await queryClient.invalidateQueries({ queryKey: ['aggregated_holdings'], exact: false });
+      await queryClient.invalidateQueries({ queryKey: ['portfolios'], exact: false });
+      await queryClient.invalidateQueries({ queryKey: ['unique_accounts'], exact: false });
+      
+      // Force refetch to ensure UI updates
+      await queryClient.refetchQueries({ queryKey: ['aggregated_holdings'], exact: false });
     } catch (error: any) {
       console.error('Error refreshing prices:', error);
       toast.error(error.message || 'Failed to refresh prices');
@@ -288,10 +294,10 @@ const PortfolioPortal = () => {
                         <h2 className="text-xl font-bold">Portfolio Overview</h2>
                         <div className="flex items-center gap-3">
                           <p className="text-sm text-muted-foreground">Real-time portfolio performance</p>
-                          {lastRefreshed && (
+                          {(lastRefreshedOverride || lastRefreshed) && (
                             <span className="flex items-center gap-1 text-xs text-muted-foreground">
                               <Clock className="w-3 h-3" />
-                              Last refreshed: {formatDateTime(lastRefreshed)}
+                              Last refreshed: {formatDateTime(lastRefreshedOverride || lastRefreshed!)}
                             </span>
                           )}
                           <Button 
