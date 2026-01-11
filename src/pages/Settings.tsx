@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -11,18 +12,46 @@ import { useProfile, useUpdateProfile } from "@/hooks/useProfile";
 import { useAuth } from "@/contexts/AuthContext";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { User, Bell, Shield, Palette, Mail } from "lucide-react";
+import { User, Bell, Shield, Palette } from "lucide-react";
 import { EmailParsingSection } from "@/components/email/EmailParsingSection";
+import { GmailConnectionCard } from "@/components/gmail/GmailConnectionCard";
+import { GmailEmailFetcher } from "@/components/gmail/GmailEmailFetcher";
 
 const Settings = () => {
   const { user } = useAuth();
   const { data: profile, isLoading } = useProfile();
   const updateProfile = useUpdateProfile();
   const { toast } = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [fullName, setFullName] = useState(profile?.full_name || "");
   const [currency, setCurrency] = useState(profile?.preferred_currency || "BDT");
   const [shariahMode, setShariahMode] = useState(profile?.shariah_mode || false);
+
+  // Handle Gmail OAuth callback params
+  useEffect(() => {
+    const gmailSuccess = searchParams.get('gmail_success');
+    const gmailError = searchParams.get('gmail_error');
+
+    if (gmailSuccess === 'true') {
+      toast({ title: "Success", description: "Gmail connected successfully!" });
+      setSearchParams({});
+    } else if (gmailError) {
+      const errorMessages: Record<string, string> = {
+        'missing_params': 'OAuth callback missing required parameters',
+        'invalid_state': 'Invalid OAuth state - please try again',
+        'token_exchange_failed': 'Failed to exchange authorization code',
+        'userinfo_failed': 'Failed to get Gmail account info',
+        'storage_failed': 'Failed to save Gmail connection',
+      };
+      toast({ 
+        title: "Gmail Connection Failed", 
+        description: errorMessages[gmailError] || 'Unknown error occurred',
+        variant: "destructive"
+      });
+      setSearchParams({});
+    }
+  }, [searchParams, setSearchParams, toast]);
 
   const handleSaveProfile = () => {
     updateProfile.mutate({
@@ -103,6 +132,10 @@ const Settings = () => {
 
             {/* Email Transaction Parsing */}
             <EmailParsingSection />
+
+            {/* Gmail Integration */}
+            <GmailConnectionCard />
+            <GmailEmailFetcher />
 
             {/* Shariah Mode */}
             <Card className="bg-card/50 border-border/50">
