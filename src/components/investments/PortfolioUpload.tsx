@@ -1,11 +1,18 @@
 import { useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
-import { Upload, FileText, Loader2, CheckCircle } from 'lucide-react';
+import { Upload, FileText, Loader2, CheckCircle, Mail, RefreshCw, Download } from 'lucide-react';
 import { formatCurrency } from '@/lib/formatters';
 import { PortfolioChangesSummary } from './PortfolioChangesSummary';
+import { useGmailConnection } from '@/hooks/useGmailConnection';
+import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Checkbox } from '@/components/ui/checkbox';
+import { format } from 'date-fns';
 
 // Load PDF.js dynamically from CDN to avoid build issues
 const loadPdfJs = async () => {
@@ -106,6 +113,18 @@ interface PortfolioChanges {
   }>;
 }
 
+interface GmailEmail {
+  id: string;
+  subject: string;
+  from: string;
+  date: string;
+  attachments: Array<{
+    filename: string;
+    attachmentId: string;
+    mimeType: string;
+  }>;
+}
+
 export const PortfolioUpload = ({ onSaveSuccess }: { onSaveSuccess?: () => void }) => {
   const { toast } = useToast();
   const [isProcessing, setIsProcessing] = useState(false);
@@ -114,6 +133,14 @@ export const PortfolioUpload = ({ onSaveSuccess }: { onSaveSuccess?: () => void 
   const [fileName, setFileName] = useState<string>('');
   const [pasteText, setPasteText] = useState('');
   const [portfolioChanges, setPortfolioChanges] = useState<PortfolioChanges | null>(null);
+  
+  // Gmail state
+  const [daysBack, setDaysBack] = useState("30");
+  const [selectedEmails, setSelectedEmails] = useState<Set<string>>(new Set());
+  const [gmailEmails, setGmailEmails] = useState<GmailEmail[]>([]);
+  const [isParsingGmail, setIsParsingGmail] = useState(false);
+  
+  const { isConnected, fetchEmails, isFetchingEmails, connect, isConnecting } = useGmailConnection();
 
   const extractTextFromPDF = useCallback(async (file: File): Promise<string> => {
     const pdfjsLib = await loadPdfJs() as any;
@@ -277,6 +304,96 @@ export const PortfolioUpload = ({ onSaveSuccess }: { onSaveSuccess?: () => void 
       setIsProcessing(false);
     }
   }, [pasteText, toast, parsePortfolio]);
+
+  const handleGmailFetch = useCallback(() => {
+    fetchEmails(
+      { daysBack: parseInt(daysBack), parseEmails: false },
+      {
+        onSuccess: (data) => {
+          setGmailEmails(data.emails);
+          setSelectedEmails(new Set());
+        },
+      }
+    );
+  }, [daysBack, fetchEmails]);
+
+  const handleToggleEmail = useCallback((emailId: string) => {
+    setSelectedEmails(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(emailId)) {
+        newSet.delete(emailId);
+      } else {
+        newSet.add(emailId);
+      }
+      return newSet;
+    });
+  }, []);
+
+  const handleSelectAllEmails = useCallback(() => {
+    if (selectedEmails.size === gmailEmails.length) {
+      setSelectedEmails(new Set());
+    } else {
+      setSelectedEmails(new Set(gmailEmails.map(e => e.id)));
+    }
+  }, [gmailEmails, selectedEmails.size]);
+
+  const handleParseSelectedEmails = useCallback(async () => {
+    if (selectedEmails.size === 0) return;
+
+    setIsParsingGmail(true);
+    try {
+      // Fetch and parse selected emails
+      const { data, error } = await supabase.functions.invoke('gmail-fetch-emails', {
+        body: { 
+          daysBack: parseInt(daysBack), 
+          parseEmails: true,
+          emailIds: Array.from(selectedEmails)
+        }
+      });
+
+      if (error) throw error;
+
+      if (data?.parsed && data.parsed.length > 0) {
+        // Extract parsed portfolios from results
+        const portfolios: ParsedPortfolio[] = [];
+        for (const result of data.parsed) {
+          if (result.result?.data) {
+            const resultData = Array.isArray(result.result.data) ? result.result.data : [result.result.data];
+            portfolios.push(...resultData);
+          }
+        }
+
+        if (portfolios.length > 0) {
+          setParsedPortfolios(portfolios);
+          toast({
+            title: "Emails parsed successfully",
+            description: `Found ${portfolios.length} portfolio(s) from ${data.parsed.length} email(s)`,
+          });
+        } else {
+          toast({
+            title: "No portfolios found",
+            description: "Could not extract portfolio data from selected emails",
+            variant: "destructive",
+          });
+        }
+      } else {
+        toast({
+          title: "Parsing incomplete",
+          description: "No portfolio data was extracted from the emails",
+          variant: "destructive",
+        });
+      }
+    } catch (err) {
+      console.error('Error parsing Gmail emails:', err);
+      toast({
+        title: "Parsing failed",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setIsParsingGmail(false);
+    }
+  }, [selectedEmails, daysBack, toast]);
 
   const handleSavePortfolio = useCallback(async () => {
     if (parsedPortfolios.length === 0) return;
@@ -478,7 +595,7 @@ export const PortfolioUpload = ({ onSaveSuccess }: { onSaveSuccess?: () => void 
         />
       )}
 
-      {/* Upload Card */}
+      {/* Upload Card with Tabs */}
       <Card className="bg-card/50 border-border/50">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -486,70 +603,219 @@ export const PortfolioUpload = ({ onSaveSuccess }: { onSaveSuccess?: () => void 
             Import Portfolio Statement
           </CardTitle>
           <CardDescription>
-            Upload a PDF portfolio statement or paste the text content for AI parsing
+            Upload a PDF, paste text, or import from Gmail
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {/* File Upload */}
-          <div className="border-2 border-dashed border-border/50 rounded-lg p-6 text-center hover:border-primary/50 transition-colors">
-            <input
-              type="file"
-              accept=".pdf"
-              onChange={handleFileSelect}
-              className="hidden"
-              id="portfolio-upload"
-              disabled={isProcessing}
-            />
-            <label htmlFor="portfolio-upload" className="cursor-pointer">
-              {isProcessing ? (
-                <div className="flex flex-col items-center gap-2">
-                  <Loader2 className="h-10 w-10 animate-spin text-primary" />
-                  <p className="text-sm text-muted-foreground">Processing {fileName}...</p>
+        <CardContent>
+          <Tabs defaultValue="upload" className="w-full">
+            <TabsList className="grid w-full grid-cols-3 mb-4">
+              <TabsTrigger value="upload" className="flex items-center gap-2">
+                <FileText className="h-4 w-4" />
+                Upload PDF
+              </TabsTrigger>
+              <TabsTrigger value="paste" className="flex items-center gap-2">
+                <Upload className="h-4 w-4" />
+                Paste Text
+              </TabsTrigger>
+              <TabsTrigger value="gmail" className="flex items-center gap-2">
+                <Mail className="h-4 w-4" />
+                Gmail
+                {isConnected && <Badge variant="secondary" className="ml-1 text-xs px-1">✓</Badge>}
+              </TabsTrigger>
+            </TabsList>
+
+            {/* Upload PDF Tab */}
+            <TabsContent value="upload" className="space-y-4">
+              <div className="border-2 border-dashed border-border/50 rounded-lg p-6 text-center hover:border-primary/50 transition-colors">
+                <input
+                  type="file"
+                  accept=".pdf"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                  id="portfolio-upload"
+                  disabled={isProcessing}
+                />
+                <label htmlFor="portfolio-upload" className="cursor-pointer">
+                  {isProcessing ? (
+                    <div className="flex flex-col items-center gap-2">
+                      <Loader2 className="h-10 w-10 animate-spin text-primary" />
+                      <p className="text-sm text-muted-foreground">Processing {fileName}...</p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center gap-2">
+                      <FileText className="h-10 w-10 text-muted-foreground" />
+                      <p className="text-sm font-medium">Click to upload PDF</p>
+                      <p className="text-xs text-muted-foreground">Portfolio statements from your brokerage</p>
+                    </div>
+                  )}
+                </label>
+              </div>
+            </TabsContent>
+
+            {/* Paste Text Tab */}
+            <TabsContent value="paste" className="space-y-4">
+              <textarea
+                className="w-full h-32 p-3 text-sm bg-muted/30 border border-border/50 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
+                placeholder="Paste your portfolio statement text here..."
+                value={pasteText}
+                onChange={(e) => setPasteText(e.target.value)}
+                disabled={isProcessing}
+              />
+              <Button 
+                onClick={handleTextPaste}
+                disabled={isProcessing || !pasteText.trim()}
+                className="w-full"
+              >
+                {isProcessing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Parsing...
+                  </>
+                ) : (
+                  'Parse Portfolio'
+                )}
+              </Button>
+            </TabsContent>
+
+            {/* Gmail Tab */}
+            <TabsContent value="gmail" className="space-y-4">
+              {!isConnected ? (
+                <div className="text-center py-8 space-y-4">
+                  <Mail className="h-12 w-12 mx-auto text-muted-foreground opacity-50" />
+                  <div>
+                    <p className="font-medium">Gmail Not Connected</p>
+                    <p className="text-sm text-muted-foreground">
+                      Connect your Gmail to fetch portfolio statements automatically
+                    </p>
+                  </div>
+                  <Button onClick={() => connect()} disabled={isConnecting}>
+                    {isConnecting ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Mail className="h-4 w-4 mr-2" />
+                    )}
+                    Connect Gmail
+                  </Button>
                 </div>
               ) : (
-                <div className="flex flex-col items-center gap-2">
-                  <FileText className="h-10 w-10 text-muted-foreground" />
-                  <p className="text-sm font-medium">Click to upload PDF</p>
-                  <p className="text-xs text-muted-foreground">Portfolio statements from your brokerage</p>
+                <div className="space-y-4">
+                  {/* Search Controls */}
+                  <div className="flex items-center gap-4">
+                    <div className="flex-1">
+                      <label className="text-sm font-medium mb-1 block">Time Range</label>
+                      <Select value={daysBack} onValueChange={setDaysBack}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="7">Last 7 days</SelectItem>
+                          <SelectItem value="30">Last 30 days</SelectItem>
+                          <SelectItem value="90">Last 90 days</SelectItem>
+                          <SelectItem value="180">Last 6 months</SelectItem>
+                          <SelectItem value="365">Last year</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="pt-5">
+                      <Button
+                        onClick={handleGmailFetch}
+                        disabled={isFetchingEmails}
+                        variant="outline"
+                      >
+                        {isFetchingEmails ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-4 w-4 mr-2" />
+                        )}
+                        Search Emails
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Email List */}
+                  {gmailEmails.length > 0 && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            checked={selectedEmails.size === gmailEmails.length && gmailEmails.length > 0}
+                            onCheckedChange={handleSelectAllEmails}
+                          />
+                          <span className="text-sm font-medium">
+                            {selectedEmails.size > 0 
+                              ? `${selectedEmails.size} of ${gmailEmails.length} selected`
+                              : `${gmailEmails.length} emails found`
+                            }
+                          </span>
+                        </div>
+                        <Button
+                          onClick={handleParseSelectedEmails}
+                          disabled={selectedEmails.size === 0 || isParsingGmail}
+                          size="sm"
+                        >
+                          {isParsingGmail ? (
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          ) : (
+                            <Download className="h-4 w-4 mr-2" />
+                          )}
+                          Parse Selected
+                        </Button>
+                      </div>
+
+                      <ScrollArea className="h-[300px] rounded-md border">
+                        <div className="p-3 space-y-2">
+                          {gmailEmails.map((email) => (
+                            <div
+                              key={email.id}
+                              className={`rounded-lg border p-3 space-y-2 transition-colors cursor-pointer ${
+                                selectedEmails.has(email.id) 
+                                  ? 'bg-primary/10 border-primary/30' 
+                                  : 'hover:bg-muted/50'
+                              }`}
+                              onClick={() => handleToggleEmail(email.id)}
+                            >
+                              <div className="flex items-start gap-3">
+                                <Checkbox
+                                  checked={selectedEmails.has(email.id)}
+                                  onCheckedChange={() => handleToggleEmail(email.id)}
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-medium truncate">{email.subject}</p>
+                                  <p className="text-sm text-muted-foreground truncate">
+                                    {email.from}
+                                  </p>
+                                  <div className="flex items-center justify-between text-xs text-muted-foreground mt-1">
+                                    <span>{format(new Date(email.date), 'PPp')}</span>
+                                    <div className="flex gap-1 flex-wrap">
+                                      {email.attachments.map((att, i) => (
+                                        <Badge key={i} variant="outline" className="text-xs">
+                                          <FileText className="h-3 w-3 mr-1" />
+                                          {att.filename}
+                                        </Badge>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </ScrollArea>
+                    </div>
+                  )}
+
+                  {gmailEmails.length === 0 && !isFetchingEmails && (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <Mail className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                      <p>Click "Search Emails" to find portfolio statements</p>
+                      <p className="text-sm">We'll look for emails from brokers with PDF attachments</p>
+                    </div>
+                  )}
                 </div>
               )}
-            </label>
-          </div>
-
-          {/* Or divider */}
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t border-border/50" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-2 text-muted-foreground">Or paste text</span>
-            </div>
-          </div>
-
-          {/* Text Paste Area */}
-          <div className="space-y-2">
-            <textarea
-              className="w-full h-32 p-3 text-sm bg-muted/30 border border-border/50 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
-              placeholder="Paste your portfolio statement text here..."
-              value={pasteText}
-              onChange={(e) => setPasteText(e.target.value)}
-              disabled={isProcessing}
-            />
-            <Button 
-              onClick={handleTextPaste}
-              disabled={isProcessing || !pasteText.trim()}
-              className="w-full"
-            >
-              {isProcessing ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Parsing...
-                </>
-              ) : (
-                'Parse Portfolio'
-              )}
-            </Button>
-          </div>
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
 
